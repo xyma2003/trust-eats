@@ -1,65 +1,81 @@
-import Image from "next/image";
+import Link from "next/link";
+import { getSessionUser } from "@/lib/session";
+import { prisma } from "@/lib/db";
+import { canViewReview } from "@/lib/visibility";
 
-export default function Home() {
+export default async function Home() {
+  const user = await getSessionUser();
+
+  // 取所有 public reviews（不区分作者）——v0.1 简单版
+  const publicReviews = await prisma.review.findMany({
+    where: {
+      visibility: "PUBLIC",
+      deletedAt: null,
+    },
+    include: {
+      restaurant: true,
+      profile: { select: { username: true, displayName: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="min-h-screen p-6">
+      <div className="max-w-3xl mx-auto space-y-8">
+        <header className="flex items-baseline justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">trust-eats 🍴</h1>
+            <p className="text-neutral-600">People-first restaurant reviews</p>
+          </div>
+          <nav className="space-x-3 text-sm">
+            {user ? (
+              <Link href="/settings" className="underline">
+                {user.profile?.displayName || "Settings"}
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className="underline">Log in</Link>
+                <Link href="/register" className="underline">Register</Link>
+              </>
+            )}
+          </nav>
+        </header>
+
+        <section>
+          <h2 className="text-lg font-semibold mb-3">Recent public reviews</h2>
+          {publicReviews.length === 0 ? (
+            <div className="rounded border border-dashed border-neutral-300 p-6 text-center text-neutral-500">
+              <p>No public reviews yet.</p>
+              {user && (
+                <Link href="/reviews/new" className="underline mt-2 inline-block">
+                  Add the first one
+                </Link>
+              )}
+            </div>
+          ) : (
+            <ul className="divide-y divide-neutral-200">
+              {publicReviews.map((r) => (
+                <li key={r.id} className="py-3">
+                  <div className="flex justify-between">
+                    <div>
+                      <p className="font-medium">{r.restaurant.name}</p>
+                      <p className="text-sm text-neutral-600">
+                        by{" "}
+                        <Link href={`/${r.profile.username}`} className="underline">
+                          {r.profile.displayName}
+                        </Link>{" "}
+                        · {r.restaurant.areaCn} · {r.restaurant.cuisine}
+                      </p>
+                    </div>
+                    <div className="font-mono">{r.overall.toFixed(1)}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
