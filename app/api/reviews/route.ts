@@ -40,30 +40,18 @@ function calcOverall(
   value: number | undefined
 ): number {
   // 味道×0.5 + 环境×0.15 + 服务×0.15 + 性价比×0.2
-  // 缺失维度按"未打分不参与 + 权重归一化"处理
-  const weights: [number, number | undefined, number][] = [
-    [0.5, taste, 1],
-    [0.15, environment, 0.5],
-    [0.15, service, 0.5],
-    [0.2, value, 0.5],
-  ];
-  let total = 0;
-  let totalW = 0;
-  for (const [w, val, defaultW] of weights) {
-    if (val === undefined) {
-      // 缺失：用该维度的默认权重归一化给其他维度
-      totalW += w;
-    } else {
-      total += val * w;
-      totalW += w;
-    }
-    // defaultW unused, kept for clarity
-    void defaultW;
-  }
-  // 归一化
-  const usedW = weights.reduce((acc, [w, v]) => acc + (v === undefined ? 0 : w), 0);
-  if (usedW === 0) return 0;
-  return Math.round((total / usedW) * 10) / 10;
+  // 缺失维度不参与计算，其余维度权重归一化（即按原比例分摊）
+  const dims: [number, number][] = [];
+  if (environment !== undefined) dims.push([0.15, environment]);
+  if (service !== undefined) dims.push([0.15, service]);
+  if (value !== undefined) dims.push([0.2, value]);
+  // taste 始终参与（required field）
+  dims.push([0.5, taste]);
+
+  const totalW = dims.reduce((acc, [w]) => acc + w, 0);
+  if (totalW === 0) return 0;
+  const weighted = dims.reduce((acc, [w, v]) => acc + w * v, 0);
+  return Math.round((weighted / totalW) * 10) / 10;
 }
 
 export async function POST(req: NextRequest) {

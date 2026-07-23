@@ -1,17 +1,18 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
-import { canViewReview } from "@/lib/visibility";
-import { parseJsonArray, parseCuisines } from "@/lib/types";
+import { canViewReview, type Viewer } from "@/lib/visibility";
+import { parseJsonArray, parseCuisines, type ReviewWithRestaurant } from "@/lib/types";
 import Link from "next/link";
 
 type Params = { params: Promise<{ username: string }> };
 
 export default async function ProfilePage({ params }: Params) {
   const { username } = await params;
-  const viewer = await getSessionUser();
+  const user = await getSessionUser();
+  const viewer: Viewer = user?.profile ? { profileId: user.profile.id } : null;
 
-  const profile = await prisma.profile.findUnique({
+  const profile = await prisma.profile.findFirst({
     where: { username, deletedAt: null },
     include: {
       reviews: {
@@ -22,19 +23,20 @@ export default async function ProfilePage({ params }: Params) {
     },
   });
 
-  if (!profile || profile.deletedAt) notFound();
+  if (!profile) notFound();
 
   // 按可见性过滤
-  const visibleReviews = [];
+  const visibleReviews: ReviewWithRestaurant[] = [];
   for (const r of profile.reviews) {
-    const canView = viewer?.profile?.id === profile.id || (await canViewReview(viewer, r));
-    if (canView) visibleReviews.push(r);
+    if (await canViewReview(viewer, r)) {
+      visibleReviews.push(r);
+    }
   }
 
-  const isOwner = viewer?.profile?.id === profile.id;
+  const isOwner = user?.profile?.id === profile.id;
 
   // 按 area 分组
-  const byArea = new Map<string, typeof visibleReviews>();
+  const byArea = new Map<string, ReviewWithRestaurant[]>();
   for (const r of visibleReviews) {
     const key = r.restaurant.areaCn;
     if (!byArea.has(key)) byArea.set(key, []);
@@ -96,7 +98,7 @@ export default async function ProfilePage({ params }: Params) {
   );
 }
 
-function ReviewCard({ review }: { review: any }) {
+function ReviewCard({ review }: { review: ReviewWithRestaurant }) {
   const cuisines = parseCuisines(review.restaurant.cuisine);
   const mustOrder = parseJsonArray(review.mustOrder);
   const avoidItems = parseJsonArray(review.avoidItems);
@@ -184,3 +186,4 @@ function DishList({
     </div>
   );
 }
+

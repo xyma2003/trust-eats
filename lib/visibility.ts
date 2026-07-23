@@ -7,10 +7,15 @@ export function parseVisibility(s: string | null | undefined): Visibility {
   return "PRIVATE";
 }
 
-export type Viewer = { id: string } | null;
+/**
+ * Viewer 的身份：profileId 是 Profile 表的 id（不是 User 表的 id）
+ * 这是评论作者的标识维度
+ */
+export type Viewer = { profileId: string } | null;
 
 /**
- * 朋友关系：A 和 B 互相关注
+ * 朋友关系：A 和 B 互相关注（双向 follow）
+ * aId / bId 都是 Profile.id
  */
 export async function isFriend(aId: string, bId: string): Promise<boolean> {
   if (aId === bId) return true;
@@ -35,14 +40,15 @@ export async function canViewReview(
   viewer: Viewer,
   review: { profileId: string; visibility: string }
 ): Promise<boolean> {
-  if (viewer?.id === review.profileId) return true;
+  if (viewer?.profileId === review.profileId) return true;
   const vis = parseVisibility(review.visibility);
   switch (vis) {
     case "PRIVATE":
       return false;
     case "FRIENDS":
-      return viewer ? await isFriend(viewer.id, review.profileId) : false;
+      return viewer ? await isFriend(viewer.profileId, review.profileId) : false;
     case "PUBLIC":
       return true;
   }
 }
+

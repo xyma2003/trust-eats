@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
+import { parseCuisines } from "@/lib/types";
+import { SettingsActions } from "./SettingsActions";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -21,20 +23,7 @@ export default async function SettingsPage() {
             <h1 className="text-2xl font-bold">{user.profile.displayName}</h1>
             <p className="text-neutral-600">@{user.profile.username}</p>
           </div>
-          <div className="text-sm space-x-3">
-            <a href={`/${user.profile.username}`} className="underline">
-              View public profile
-            </a>
-            <button
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                window.location.href = "/";
-              }}
-              className="underline text-red-600"
-            >
-              Log out
-            </button>
-          </div>
+          <SettingsActions username={user.profile.username} />
         </header>
 
         <section>
@@ -43,22 +32,30 @@ export default async function SettingsPage() {
             <p className="text-neutral-600">No reviews yet.</p>
           ) : (
             <ul className="divide-y divide-neutral-200">
-              {reviews.map((r) => (
-                <li key={r.id} className="py-3">
-                  <div className="flex justify-between">
-                    <div>
-                      <p className="font-medium">{r.restaurant.name}</p>
-                      <p className="text-sm text-neutral-600">
-                        {r.restaurant.areaCn} · {r.restaurant.cuisine}
-                      </p>
+              {reviews.map((r) => {
+                const cuisines = parseCuisines(r.restaurant.cuisine);
+                return (
+                  <li key={r.id} className="py-3">
+                    <div className="flex justify-between">
+                      <div>
+                        <a
+                          href={`/${user.profile!.username}`}
+                          className="font-medium underline"
+                        >
+                          {r.restaurant.name}
+                        </a>
+                        <p className="text-sm text-neutral-600">
+                          {r.restaurant.areaCn} · {cuisines.join(" / ")}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono">{r.overall.toFixed(1)}</p>
+                        <p className="text-xs text-neutral-500">{r.visibility}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-mono">{r.overall.toFixed(1)}</p>
-                      <p className="text-xs text-neutral-500">{r.visibility}</p>
-                    </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
