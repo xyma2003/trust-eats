@@ -1,0 +1,178 @@
+// trust-eats Prisma schema
+// See docs/TDD.md §2 for design rationale
+//
+// SQLite 不支持 Json 类型 / 数组 / check 约束，用 String + JSON 序列化 + 应用层校验
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique // Auth user ID (v0.1 local User.id, v0.2 Supabase)
+  username    String   @unique
+  displayName String
+  bio         String?
+  avatarUrl   String?
+  location    String?
+
+  // 品味画像（JSON string, SQLite 限制）
+  tasteProfile String?
+
+  // 默认可见性
+  defaultVisibility String @default("PRIVATE") // PRIVATE | FRIENDS | PUBLIC
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  reviews   Review[]
+  lists     List[]
+  followers Follow[] @relation("Followee")
+  following Follow[] @relation("Follower")
+
+  @@index([username])
+}
+
+model Restaurant {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  area      String
+  areaCn    String
+  address   String?
+  phone     String?
+  cuisine   String // JSON string array, e.g. ["粤菜","烧味"]
+  priceTier String? // $ | $$ | $$$ | $$$$
+  url       String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews    Review[]
+  listItems  ListItem[]
+
+  @@index([area])
+  @@index([name])
+}
+
+model Review {
+  id           String  @id @default(cuid())
+  profileId    String
+  restaurantId String
+
+  // 评分
+  taste       Float
+  environment Float?
+  service     Float?
+  value       Float?
+  overall     Float
+
+  // 内容（JSON arrays as strings due to SQLite）
+  mustOrder   String
+  avoidItems  String
+  otherTries  String
+  wantToTry   String
+  notes       String
+
+  // 可见性
+  visibility String @default("PRIVATE") // PRIVATE | FRIENDS | PUBLIC
+
+  // 照片
+  photoUrls String // JSON string array
+
+  // 区块链承诺层预留
+  contentHash String?
+
+  // 访问
+  lastVisited String?
+
+  // 删除（软删 + 撤回留痕）
+  deletedAt DateTime?
+  isRevoked Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile    Profile    @relation(fields: [profileId], references: [id])
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id])
+  listItems  ListItem[]
+
+  @@index([profileId])
+  @@index([restaurantId])
+  @@index([visibility])
+  @@index([deletedAt])
+}
+
+model List {
+  id          String @id @default(cuid())
+  profileId   String
+  slug        String
+  title       String
+  description String?
+  visibility  String @default("PRIVATE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile   @relation(fields: [profileId], references: [id])
+  items   ListItem[]
+
+  @@unique([profileId, slug])
+}
+
+model ListItem {
+  id            String @id @default(cuid())
+  listId        String
+  reviewId      String?
+  restaurantId  String?
+  order         Int
+  note          String?
+
+  list       List       @relation(fields: [listId], references: [id])
+  review     Review?    @relation(fields: [reviewId], references: [id])
+  restaurant Restaurant? @relation(fields: [restaurantId], references: [id])
+
+  // 应用层校验：reviewId 或 restaurantId 至少一个非 null
+}
+
+model Follow {
+  id         String   @id @default(cuid())
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  follower Profile @relation("Follower", fields: [followerId], references: [id])
+  followee Profile @relation("Followee", fields: [followeeId], references: [id])
+
+  @@unique([followerId, followeeId])
+  @@index([followeeId])
+  @@index([followerId])
+}
+
+model AggregateScore {
+  id            String   @id @default(cuid())
+  profileId     String? // null = 未登录访客视角
+  restaurantId  String
+  score         Float
+  reviewerCount Int
+  calculatedAt  DateTime @default(now())
+
+  @@unique([profileId, restaurantId])
+  @@index([restaurantId])
+}
+
+model User {
+  // v0.1 本地 auth（邮箱/密码）。v0.2 迁 Supabase Auth 后此表废弃
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
