@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { canViewReview } from "@/lib/visibility";
+import { parseCuisines } from "@/lib/types";
 
 export default async function Home() {
   const user = await getSessionUser();
@@ -14,7 +14,7 @@ export default async function Home() {
     },
     include: {
       restaurant: true,
-      profile: { select: { username: true, displayName: true } },
+      profile: { select: { id: true, username: true, displayName: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 20,
@@ -29,6 +29,7 @@ export default async function Home() {
             <p className="text-neutral-600">People-first restaurant reviews</p>
           </div>
           <nav className="space-x-3 text-sm">
+            <Link href="/restaurants" className="underline">Browse</Link>
             {user ? (
               <Link href="/settings" className="underline">
                 {user.profile?.displayName || "Settings"}
@@ -59,13 +60,18 @@ export default async function Home() {
                 <li key={r.id} className="py-3">
                   <div className="flex justify-between">
                     <div>
-                      <p className="font-medium">{r.restaurant.name}</p>
+                      <Link
+                        href={`/restaurants/${r.restaurantId}`}
+                        className="font-medium underline"
+                      >
+                        {r.restaurant.name}
+                      </Link>
                       <p className="text-sm text-neutral-600">
                         by{" "}
                         <Link href={`/${r.profile.username}`} className="underline">
                           {r.profile.displayName}
                         </Link>{" "}
-                        · {r.restaurant.areaCn} · {r.restaurant.cuisine}
+                        · {r.restaurant.areaCn} · {parseCuisines(r.restaurant.cuisine).join(" / ")}
                       </p>
                     </div>
                     <div className="font-mono">{r.overall.toFixed(1)}</div>
