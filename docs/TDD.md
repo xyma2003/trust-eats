@@ -14,12 +14,12 @@
 |---|---|---|
 | Framework | Next.js 14 (App Router) | 全栈一体，前后端同仓库 |
 | Language | TypeScript | 类型安全，数据模型多 |
-| Database | Postgres (Supabase) | 关系型 + JSON + pgvector |
+| Database | SQLite (v0.1 本地开发) → Postgres/Supabase (v0.2 生产) | Prisma 支持无缝迁移，v0.1 先不阻塞 |
 | ORM | Prisma | TypeScript 友好，migration 管理好 |
 | Auth | Supabase Auth | 社交登录现成，免开发 |
 | UI | Tailwind CSS + shadcn/ui | 现代、可定制 |
 | Hosting | Vercel | Next.js 原生，免费额度够 v0.1 |
-| Image Storage | Cloudflare R2 | 便宜，CDN 自带 |
+| Image Storage | 本地文件系统（v0.1）→ Cloudflare R2 (v0.2) | 简单优先 |
 | Hash (future) | Chain commitment field | 区块链承诺层预留接口 |
 
 ### 1.2 部署图
@@ -27,14 +27,14 @@
 ```
 [ Browser ]
     ↓
-[ Vercel (Next.js) ] ── API Routes
+[ Next.js (localhost, v0.1) / Vercel (v0.2) ] ── API Routes
     ↓
-[ Supabase (Postgres + Auth + Storage) ]
+[ SQLite file (v0.1) / Postgres (v0.2 Supabase) ]
     ↓
-[ Cloudflare R2 (images) ]
+[ 本地 public/uploads (v0.1) / Cloudflare R2 (v0.2) ]
 ```
 
-v0.1 单实例够。未来加 Redis 缓存 / 向量搜索 / 链上承诺层都独立加，不动主架构。
+v0.1 全本地开发，v0.2 迁生产。架构层面无变化，只是换 datasource 和 storage backend。
 
 ### 1.3 目录结构（trust-eats 仓库）
 
@@ -74,11 +74,12 @@ trust-eats/
 ```prisma
 model Profile {
   id            String   @id @default(cuid())
-  userId       String   @unique    // Supabase Auth user
+  userId       String   @unique    // Auth user ID (v0.1 用本地 auth，v0.2 Supabase)
   username      String   @unique
   displayName   String
   bio           String?
   avatarUrl     String?
+  location      String?   // 用户常驻城市，v0.2 启用
   
   // 品味画像（JSON，未来扩展）
   tasteProfile Json?    // { cuisines: {...}, preferences: [...], avgScore: 7.8 }
@@ -89,7 +90,7 @@ model Profile {
   // 时间戳
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?    // 软删，硬删走特殊流程
+  deletedAt     DateTime?    // 软删，30 天后定期硬删
   
   reviews       Review[]
   lists        List[]
@@ -111,6 +112,8 @@ model Restaurant {
   priceTier   String?   // "$" / "$$" / "$$$" / "$$$$"
   url         String?
   
+  // 创建者（防止重复创建）
+  createdById String?   // 第一个创建该店的 profile
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
@@ -146,12 +149,12 @@ model Review {
   photoUrls    String[]
   
   // 区块链承诺层预留
-  contentHash  String?   // 未来上链的 hash（v0.1 留空）
+  contentHash  String?   // 未来上链的 hash（v0.1 留空，但创建时计算并存储）
   
   // 访问
-  lastVisited  String?   // "2025-06" / "多次" 等
+  lastVisited  String?   // "2025-06" / "多次" 等（保持字符串兼容 hk_meal）
   
-  // 删除
+  // 删除（统一软删 + 定期硬删）
   deletedAt    DateTime?  // 软删（撤回），留痕但不出现在聚合
   isRevoked    Boolean @default(false)  // 撤回标记
   
@@ -164,6 +167,7 @@ model Review {
   @@index([profileId])
   @@index([restaurantId])
   @@index([visibility])
+  @@index([deletedAt])     // 查"未删除"的 review 用
 }
 
 model List {
@@ -172,6 +176,7 @@ model List {
   slug        String   // "dim-sum" / "late-night"
   title       String   // "早茶 Dim Sum"
   description String?
+  visibility  Visibility @default(PRIVATE)  // 清单本身也有可见性
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -185,12 +190,21 @@ model List {
 model ListItem {
   id          String   @id @default(cuid())
   listId      String
-  reviewId    String    // 指向具体 review
+  
+  // 支持两种加法：
+  // 1. 加 review（已评价过的店）
+  // 2. 加 restaurant 但无 review（"想试清单"）
+  reviewId    String?
+  restaurantId String?
   
   order       Int      // 排序
+  note        String?   // 在这个清单里的备注
   
   list        List     @relation(fields: [listId], references: [id])
-  review      Review   @relation(fields: [reviewId], references: [id])
+  review      Review?   @relation(fields: [reviewId], references: [id])
+  restaurant  Restaurant? @relation(fields: [restaurantId], references: [id])
+  
+  @@ensure(reviewId != null || restaurantId != null)  // 至少有一个
 }
 
 model Follow {
@@ -204,7 +218,22 @@ model Follow {
   followee    Profile  @relation("Followee", fields: [followeeId], references: [id])
   
   @@unique([followerId, followeeId])
-  @@index([followeeId])
+  @@index([followeeId])    // 查"某人的粉丝列表"用
+  @@index([followerId])    // 查"某人关注了谁"用
+}
+
+model AggregateScore {
+  // 缓存某 profile 视角下某店的聚合分
+  // 避免每次查询都重算
+  id          String   @id @default(cuid())
+  profileId   String   // 视角者（null = 未登录访客视角）
+  restaurantId String
+  score       Float
+  reviewerCount Int     // 多少个 public review 参与计算
+  calculatedAt DateTime @default(now())
+  
+  @@unique([profileId, restaurantId])
+  @@index([restaurantId])
 }
 
 enum Visibility {
@@ -356,7 +385,7 @@ function cosineSim(a: Record<string, number>, b: Record<string, number>): number
 |---|---|---|
 | **撤回单条评价**（Soft delete） | 评价从 profile / 聚合分消失，但留痕 | `review.deletedAt = now, isRevoked = true` |
 | **硬删单条评价** | 完全删除 | `prisma.review.delete()` + 影响的聚合分重算 |
-| **删除整个 Profile** | 所有 review 硬删，profile 软删 | 事务：硬删所有 reviews → 软删 profile |
+| **删除整个 Profile** | 所有 review 软删 + profile 软删 | 事务：reviews.deletedAt = now → profile.deletedAt = now，30 天后定期硬删 |
 
 ### 5.2 撤回留痕
 
@@ -385,9 +414,9 @@ async function recalcAggregateScores(reviewId: string) {
 
 ### 5.4 区块链承诺层冲突
 
-PRD §5.4 已记录：删除权和区块链冲突，v0.1 暂不处理。
+PRD §5.4 明确记录：删除权和区块链冲突，**v0.1 暂不处理**。
 
-v0.1 的 `contentHash` 字段不用于防篡改，只作为评价的唯一标识。未来上链时，撤回留痕的 hash 仍可在链上验证"曾存在"，但用户可以选择从聚合分移除。
+TDD 遵循：v0.1 的 `contentHash` 字段仅作为评价内容的唯一标识（hash 计算后存储），不用于防篡改。未来若 PRD 更新决定上链承诺层，再在本节扩展。
 
 ---
 
@@ -471,9 +500,10 @@ POST   /api/lists/:id/items                 # 加 review 到清单
 
 | 阶段 | 任务 | 输出 |
 |---|---|---|
-| **M1: 基础设施** | Next.js 项目 init + Supabase + Prisma 配置 | 能本地跑、能连 DB |
+| **M0: 数据迁移** | hk_meal CSV → DB 导入脚本 | v0.1 启动就有数据可测 |
+| **M1: 基础设施** | Next.js 项目 init + Prisma + SQLite 配置 | 能本地跑、能连 DB |
 | **M2: 数据模型** | Prisma schema + migration | DB 表结构就绪 |
-| **M3: 认证 + Profile** | Supabase Auth 接入 + profile 页 | 能注册登录、能看自己 profile |
+| **M3: 认证 + Profile** | 本地 auth（邮箱/密码）+ profile 页 | 能注册登录、能看自己 profile |
 | **M4: 录入 Review** | 表单 + API + 可见性选择 | 能录入评价（含 PRIVATE 默认） |
 | **M5: Profile 公开视图** | 按 area / cuisine 归档展示 | 别人能看 public profile |
 | **M6: 店搜索 + 详情** | 搜索 + 单店聚合分 | 能查店、看分 |
@@ -481,7 +511,7 @@ POST   /api/lists/:id/items                 # 加 review 到清单
 | **M8: 删除 + 撤回** | hard delete + soft revoke + 留痕 | 用户主权完整 |
 | **M9: 年报导出** | 年报图生成 | 可分享的图片 |
 
-每阶段一个 PR，合并到 main。
+每阶段一个 commit/PR。v0.2 迁 Supabase + Vercel 部署。
 
 ---
 
