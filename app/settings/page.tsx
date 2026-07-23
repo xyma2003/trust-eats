@@ -69,6 +69,21 @@ export default async function SettingsPage() {
         </section>
 
         <section className="border-t pt-4">
+          <h2 className="text-sm font-semibold text-neutral-800">Export</h2>
+          <p className="text-xs text-neutral-600 mt-1">
+            Generate a shareable food year report.
+          </p>
+          <div className="mt-3">
+            <a
+              href="/settings/export"
+              className="inline-block rounded bg-black text-white px-3 py-1 text-sm"
+            >
+              Build my {new Date().getFullYear()} year report →
+            </a>
+          </div>
+        </section>
+
+        <section className="border-t pt-4">
           <h2 className="text-sm font-semibold text-red-800">Danger zone</h2>
           <p className="text-xs text-neutral-600 mt-1">
             Deleting your account revokes all your reviews (no longer in aggregate scores)
