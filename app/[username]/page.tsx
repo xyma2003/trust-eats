@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
-import { canViewReview, type Viewer } from "@/lib/visibility";
+import { canViewReview, isFriend, type Viewer } from "@/lib/visibility";
 import { parseJsonArray, parseCuisines, type ReviewWithRestaurant } from "@/lib/types";
+import { FollowButton } from "@/components/FollowButton";
 import Link from "next/link";
 
 type Params = { params: Promise<{ username: string }> };
@@ -35,6 +36,22 @@ export default async function ProfilePage({ params }: Params) {
 
   const isOwner = user?.profile?.id === profile.id;
 
+  // 查 viewer 是否 follow + 是否互关
+  let isFollowing = false;
+  let isFriends = false;
+  if (user?.profile && !isOwner) {
+    const follow = await prisma.follow.findUnique({
+      where: {
+        followerId_followeeId: {
+          followerId: user.profile.id,
+          followeeId: profile.id,
+        },
+      },
+    });
+    isFollowing = !!follow;
+    isFriends = await isFriend(user.profile.id, profile.id);
+  }
+
   // 按 area 分组
   const byArea = new Map<string, ReviewWithRestaurant[]>();
   for (const r of visibleReviews) {
@@ -47,14 +64,28 @@ export default async function ProfilePage({ params }: Params) {
     <main className="min-h-screen p-6">
       <div className="max-w-3xl mx-auto space-y-8">
         <header>
-          <h1 className="text-2xl font-bold">{profile.displayName}</h1>
-          <p className="text-neutral-600">@{profile.username}</p>
+          <div className="flex items-baseline justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">{profile.displayName}</h1>
+              <p className="text-neutral-600">@{profile.username}</p>
+            </div>
+            {!isOwner && user?.profile && (
+              <FollowButton
+                targetUsername={profile.username}
+                initialFollowing={isFollowing}
+                initialFriends={isFriends}
+              />
+            )}
+            {isOwner && (
+              <div className="text-sm space-x-3">
+                <Link href="/settings" className="underline">Edit</Link> ·{" "}
+                <Link href="/reviews/new" className="underline">Add review</Link>
+              </div>
+            )}
+          </div>
           {profile.bio && <p className="mt-2 text-neutral-700">{profile.bio}</p>}
-          {isOwner && (
-            <p className="mt-3 text-sm">
-              <Link href="/settings" className="underline">Edit</Link> ·{" "}
-              <Link href="/reviews/new" className="underline">Add review</Link>
-            </p>
+          {isFriends && (
+            <p className="mt-1 text-xs text-green-700">✓ You and {profile.displayName} are friends</p>
           )}
         </header>
 
