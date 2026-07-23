@@ -3,6 +3,8 @@ import { getSessionUser } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { parseCuisines } from "@/lib/types";
 import { SettingsActions } from "./SettingsActions";
+import { ReviewActions } from "./ReviewActions";
+import { DeleteProfile } from "./DeleteProfile";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -39,7 +41,7 @@ export default async function SettingsPage() {
                     <div className="flex justify-between">
                       <div>
                         <a
-                          href={`/${user.profile!.username}`}
+                          href={`/restaurants/${r.restaurantId}`}
                           className="font-medium underline"
                         >
                           {r.restaurant.name}
@@ -47,6 +49,12 @@ export default async function SettingsPage() {
                         <p className="text-sm text-neutral-600">
                           {r.restaurant.areaCn} · {cuisines.join(" / ")}
                         </p>
+                        <div className="mt-2">
+                          <ReviewActions
+                            reviewId={r.id}
+                            restaurantName={r.restaurant.name}
+                          />
+                        </div>
                       </div>
                       <div className="text-right">
                         <p className="font-mono">{r.overall.toFixed(1)}</p>
@@ -58,6 +66,17 @@ export default async function SettingsPage() {
               })}
             </ul>
           )}
+        </section>
+
+        <section className="border-t pt-4">
+          <h2 className="text-sm font-semibold text-red-800">Danger zone</h2>
+          <p className="text-xs text-neutral-600 mt-1">
+            Deleting your account revokes all your reviews (no longer in aggregate scores)
+            and makes your profile inaccessible.
+          </p>
+          <div className="mt-3">
+            <DeleteProfile />
+          </div>
         </section>
       </div>
     </main>
